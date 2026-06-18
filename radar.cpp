@@ -57,7 +57,7 @@ static int lat2subPixel(double lat, int z) {
 
 // ─── PNG draw callback (called per row by PNGdec) ────────────────────────────
 
-static void pngRowCallback(PNGDRAW* pDraw) {
+static int pngRowCallback(PNGDRAW* pDraw) {
     uint16_t line[TILE_SIZE_PX];
     // PNG_RGB565_LITTLE_ENDIAN produces native uint16_t values TFT_eSPI expects
     png.getLineAsRGB565(pDraw, line, PNG_RGB565_LITTLE_ENDIAN, 0x0000 /* black bg */);
@@ -68,6 +68,7 @@ static void pngRowCallback(PNGDRAW* pDraw) {
     memcpy(&s_stitch[destRow * STITCH_SIZE + s_tileOffX],
            line,
            TILE_SIZE_PX * sizeof(uint16_t));
+    return 1;
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
