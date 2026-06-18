@@ -1,0 +1,21 @@
+# Arduino build output
+build/
+*.elf
+*.bin
+*.hex
+*.map
+
+# Arduino IDE temp files
+*.bak
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# VS Code
+.vscode/
+
+# Claude Code session data
+.claude/
