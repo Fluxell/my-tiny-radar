@@ -11,9 +11,9 @@ Arduino sketch for an ESP32-S3 + Waveshare 1.28" round GC9A01 display (240×240)
 This is an Arduino IDE project — there is no `make` or `cmake`. Compile and upload through **Arduino IDE 2.x** with the ESP32 Arduino core installed.
 
 Board settings (Tools menu):
-- **Board:** ESP32S3 Dev Module
-- **PSRAM:** OPI PSRAM  ← required; the stitch buffer lives in PSRAM
-- **Flash Size:** match your physical board (typically 8MB)
+- **Board:** Waveshare ESP32-S3-LCD-1.85
+- **PSRAM:** Enabled  ← required; the stitch buffer lives in PSRAM
+- **Partition Scheme:** 16M Flash (3MB APP/9.9MB FATFS)  ← avoids the ESP SR model partition
 
 Required libraries (Library Manager):
 - `TFT_eSPI` by Bodmer

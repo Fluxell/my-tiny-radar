@@ -66,14 +66,13 @@ Edit `config.h` before building if you need to change defaults:
 ## Building & Flashing
 
 1. Open `TinyWeatherRadar.ino` in Arduino IDE.
-2. Select your board under **Tools → Board → esp32 → ESP32S3 Dev Module**.
+2. Select your board under **Tools → Board → esp32 → Waveshare ESP32-S3-LCD-1.85**.
 3. Set the following under **Tools**:
 
    | Setting | Value |
    |---|---|
-   | PSRAM | OPI PSRAM |
-   | Flash Size | 8MB (match your board) |
-   | Partition Scheme | Default 4MB with spiffs (or 8MB if available) |
+   | PSRAM | Enabled |
+   | Partition Scheme | 16M Flash (3MB APP/9.9MB FATFS) |
    | Upload Speed | 921600 |
 
 4. Select the correct COM port under **Tools → Port**.
