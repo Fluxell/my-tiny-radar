@@ -63,7 +63,7 @@ static int pngRowCallback(PNGDRAW* pDraw) {
     png.getLineAsRGB565(pDraw, line, PNG_RGB565_LITTLE_ENDIAN, 0x0000 /* black bg */);
 
     int destRow = s_tileOffY + pDraw->y;
-    if (destRow >= STITCH_SIZE) return;
+    if (destRow >= STITCH_SIZE) return 1;
 
     memcpy(&s_stitch[destRow * STITCH_SIZE + s_tileOffX],
            line,
