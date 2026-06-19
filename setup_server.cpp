@@ -264,9 +264,7 @@ static void handleNotFound() {
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 void startSetupServer() {
-    Serial.println("[setup] showSetupScreen"); Serial.flush();
-    showSetupScreen();
-
+    // WiFi must claim its DMA channels before TFT_eSPI initialises SPI2
     Serial.println("[setup] calling softAP"); Serial.flush();
     WiFi.persistent(false);
     bool apOK;
@@ -276,16 +274,16 @@ void startSetupServer() {
         apOK = WiFi.softAP(AP_SSID);
     }
     Serial.printf("[setup] softAP returned: %d\n", apOK ? 1 : 0); Serial.flush();
-
     delay(500);
     Serial.printf("[setup] AP IP: %s\n", WiFi.softAPIP().toString().c_str()); Serial.flush();
 
-    Serial.println("[setup] server.on"); Serial.flush();
+    // Display init after WiFi is up
+    Serial.println("[setup] showSetupScreen"); Serial.flush();
+    showSetupScreen();
+
     server.on("/",     HTTP_GET,  handleRoot);
     server.on("/save", HTTP_POST, handleSave);
     server.onNotFound(handleNotFound);
-
-    Serial.println("[setup] server.begin"); Serial.flush();
     server.begin();
 
     Serial.println("[setup] entering loop"); Serial.flush();
