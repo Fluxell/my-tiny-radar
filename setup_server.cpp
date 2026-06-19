@@ -3,6 +3,7 @@
 #include "storage.h"
 #include <WiFi.h>
 #include <WebServer.h>
+#include <TFT_eSPI.h>
 
 static WebServer server(80);
 
@@ -197,6 +198,37 @@ static const char SAVED_HTML[] PROGMEM = R"HTML(
 </html>
 )HTML";
 
+// ─── Setup screen ─────────────────────────────────────────────────────────────
+
+static void showSetupScreen() {
+    pinMode(LCD_BL_PIN, OUTPUT);
+    digitalWrite(LCD_BL_PIN, HIGH);
+
+    TFT_eSPI tft;
+    tft.init();
+    tft.setRotation(0);
+    tft.fillScreen(TFT_BLACK);
+
+    const uint16_t wifiColor = tft.color565(56, 189, 248);  // #38bdf8
+    const int cx   = DISPLAY_WIDTH / 2;
+    const int dotY = 130;
+
+    // Three arcs clockwise from 305°→55° (sweeps through 0°/top = upward-facing)
+    tft.drawArc(cx, dotY, 75, 69, 305, 55, wifiColor, TFT_BLACK);
+    tft.drawArc(cx, dotY, 52, 46, 305, 55, wifiColor, TFT_BLACK);
+    tft.drawArc(cx, dotY, 29, 23, 305, 55, wifiColor, TFT_BLACK);
+
+    // Dot at arc origin
+    tft.fillCircle(cx, dotY, 8, wifiColor);
+
+    // Labels
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawString("TinyRadar", cx, 190, 2);
+    tft.setTextColor(tft.color565(148, 163, 184), TFT_BLACK);
+    tft.drawString("Connect to: " AP_SSID, cx, 210, 1);
+}
+
 // ─── Route handlers ───────────────────────────────────────────────────────────
 
 static void handleRoot() {
@@ -231,6 +263,8 @@ static void handleNotFound() {
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 void startSetupServer() {
+    showSetupScreen();
+
     WiFi.mode(WIFI_AP);
 
     if (strlen(AP_PASSWORD) > 0) {
