@@ -267,15 +267,18 @@ void startSetupServer() {
     Serial.println("[setup] showSetupScreen"); Serial.flush();
     showSetupScreen();
 
-    Serial.println("[setup] WiFi.softAP"); Serial.flush();
+    Serial.println("[setup] calling softAP"); Serial.flush();
     WiFi.persistent(false);
+    bool apOK;
     if (strlen(AP_PASSWORD) > 0) {
-        WiFi.softAP(AP_SSID, AP_PASSWORD);
+        apOK = WiFi.softAP(AP_SSID, AP_PASSWORD);
     } else {
-        WiFi.softAP(AP_SSID);
+        apOK = WiFi.softAP(AP_SSID);
     }
+    Serial.printf("[setup] softAP returned: %d\n", apOK ? 1 : 0); Serial.flush();
 
-    Serial.printf("[setup] AP \"%s\"  IP %s\n", AP_SSID, WiFi.softAPIP().toString().c_str()); Serial.flush();
+    delay(500);
+    Serial.printf("[setup] AP IP: %s\n", WiFi.softAPIP().toString().c_str()); Serial.flush();
 
     Serial.println("[setup] server.on"); Serial.flush();
     server.on("/",     HTTP_GET,  handleRoot);
