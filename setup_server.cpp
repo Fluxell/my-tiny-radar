@@ -264,25 +264,30 @@ static void handleNotFound() {
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 void startSetupServer() {
+    Serial.println("[setup] showSetupScreen"); Serial.flush();
     showSetupScreen();
 
+    Serial.println("[setup] WiFi.mode"); Serial.flush();
     WiFi.mode(WIFI_AP);
 
+    Serial.println("[setup] WiFi.softAP"); Serial.flush();
     if (strlen(AP_PASSWORD) > 0) {
         WiFi.softAP(AP_SSID, AP_PASSWORD);
     } else {
         WiFi.softAP(AP_SSID);
     }
 
-    Serial.printf("[setup] AP \"%s\"  IP %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
+    Serial.printf("[setup] AP \"%s\"  IP %s\n", AP_SSID, WiFi.softAPIP().toString().c_str()); Serial.flush();
 
+    Serial.println("[setup] server.on"); Serial.flush();
     server.on("/",     HTTP_GET,  handleRoot);
     server.on("/save", HTTP_POST, handleSave);
     server.onNotFound(handleNotFound);
+
+    Serial.println("[setup] server.begin"); Serial.flush();
     server.begin();
 
-    Serial.println("[setup] HTTP server started — waiting for configuration");
-
+    Serial.println("[setup] entering loop"); Serial.flush();
     while (true) {
         server.handleClient();
         delay(2);
