@@ -187,6 +187,7 @@ static bool fetchAndDecodeTile(const String& url, int offX, int offY) {
 // ─── WiFi ─────────────────────────────────────────────────────────────────────
 
 static bool connectWiFi(const AppConfig& cfg) {
+    WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
     WiFi.begin(cfg.wifiSSID, cfg.wifiPass);
     Serial.print("[radar] WiFi connecting");

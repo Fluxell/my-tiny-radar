@@ -268,6 +268,7 @@ void startSetupServer() {
     showSetupScreen();
 
     Serial.println("[setup] WiFi.mode"); Serial.flush();
+    WiFi.persistent(false); // skip NVS read/write — prevents watchdog hang during mode change
     WiFi.mode(WIFI_AP);
 
     Serial.println("[setup] WiFi.softAP"); Serial.flush();
