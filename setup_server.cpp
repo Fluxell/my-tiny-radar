@@ -267,11 +267,8 @@ void startSetupServer() {
     Serial.println("[setup] showSetupScreen"); Serial.flush();
     showSetupScreen();
 
-    Serial.println("[setup] WiFi.mode"); Serial.flush();
-    WiFi.persistent(false); // skip NVS read/write — prevents watchdog hang during mode change
-    WiFi.mode(WIFI_AP);
-
     Serial.println("[setup] WiFi.softAP"); Serial.flush();
+    WiFi.persistent(false);
     if (strlen(AP_PASSWORD) > 0) {
         WiFi.softAP(AP_SSID, AP_PASSWORD);
     } else {
