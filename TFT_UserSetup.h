@@ -25,4 +25,6 @@
 #define LOAD_FONT2  // small 8px font (Font 2)
 #define LOAD_FONT4  // medium font (Font 4)
 
+#define USE_HSPI_PORT   // ESP32-S3 only has SPI2 (HSPI) for user code — SPI3/VSPI does not exist
+
 #define SPI_FREQUENCY  40000000
