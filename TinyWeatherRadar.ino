@@ -25,7 +25,11 @@
 #include "storage.h"
 #include "setup_server.h"
 #include "radar.h"
+#include <TFT_eSPI.h>
 #include <esp_sleep.h>
+
+// Single shared display instance — extern'd by setup_server.cpp and radar.cpp
+TFT_eSPI tft;
 
 AppConfig cfg;
 

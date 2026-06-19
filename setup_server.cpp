@@ -5,6 +5,8 @@
 #include <WebServer.h>
 #include <TFT_eSPI.h>
 
+extern TFT_eSPI tft;
+
 static WebServer server(80);
 
 // ─── HTML pages stored in flash ───────────────────────────────────────────────
@@ -204,7 +206,6 @@ static void showSetupScreen() {
     pinMode(LCD_BL_PIN, OUTPUT);
     digitalWrite(LCD_BL_PIN, HIGH);
 
-    TFT_eSPI tft;
     tft.init();
     tft.setRotation(0);
     tft.fillScreen(TFT_BLACK);

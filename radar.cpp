@@ -10,7 +10,7 @@
 
 // ─── Module-level objects ─────────────────────────────────────────────────────
 
-static TFT_eSPI tft = TFT_eSPI();
+extern TFT_eSPI tft;   // defined in TinyWeatherRadar.ino
 static PNG       png;
 
 // Stitched 512×512 RGB565 image — must live in PSRAM
