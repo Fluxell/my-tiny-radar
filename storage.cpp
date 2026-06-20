@@ -12,7 +12,8 @@ bool loadConfig(AppConfig& cfg) {
         prefs.getString("pass",    cfg.wifiPass,  sizeof(cfg.wifiPass));
         cfg.latitude       = prefs.getFloat("lat",     0.0f);
         cfg.longitude      = prefs.getFloat("lon",     0.0f);
-        cfg.refreshMinutes = prefs.getInt("refresh",   REFRESH_DEFAULT);
+        cfg.refreshMinutes = prefs.getInt("refresh", REFRESH_DEFAULT);
+        prefs.getString("tzposix", cfg.tzPosix, sizeof(cfg.tzPosix));
     }
 
     prefs.end();
@@ -27,6 +28,7 @@ void saveConfig(const AppConfig& cfg) {
     prefs.putFloat("lat",      cfg.latitude);
     prefs.putFloat("lon",      cfg.longitude);
     prefs.putInt("refresh",    cfg.refreshMinutes);
+    prefs.putString("tzposix", cfg.tzPosix);
     prefs.end();
 }
 

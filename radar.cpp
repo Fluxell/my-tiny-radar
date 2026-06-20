@@ -7,6 +7,7 @@
 #include <PNGdec.h>
 #include <TFT_eSPI.h>
 #include <math.h>
+#include <time.h>
 
 // ─── Module-level objects ─────────────────────────────────────────────────────
 
@@ -19,8 +20,10 @@ static uint8_t* s_tileBuf = nullptr;
 
 // Crop region in stitch-space coordinates (set before each tile decode)
 struct RenderCtx {
-    int tileOffX, tileOffY; // tile's top-left in stitch space
-    int cropX,    cropY;    // 240×240 crop origin in stitch space
+    int tileOffX, tileOffY;   // tile's top-left in stitch space
+    int cropX,    cropY;      // 240×240 crop origin in stitch space
+    int gridOriginTileX;      // tile X of top-left grid tile (for geo projection)
+    int gridOriginTileY;      // tile Y of top-left grid tile
 };
 static RenderCtx s_ctx;
 
@@ -31,6 +34,25 @@ static void showStatus(const char* msg) {
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.setTextDatum(MC_DATUM);
     tft.drawString(msg, DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 2, 2);
+}
+
+
+static void drawCenterDot() {
+    tft.fillCircle(DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 2, 3,
+                   tft.color565(210, 210, 210));
+}
+
+static void drawRadarTime(uint32_t radarUnixTime, const char* tzPosix) {
+    setenv("TZ", tzPosix, 1);
+    tzset();
+    time_t t = (time_t)radarUnixTime;
+    struct tm tmLocal;
+    localtime_r(&t, &tmLocal);
+    char buf[6];
+    snprintf(buf, sizeof(buf), "%02d:%02d", tmLocal.tm_hour, tmLocal.tm_min);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(tft.color565(200, 200, 200), TFT_BLACK);
+    tft.drawString(buf, DISPLAY_WIDTH / 2, DISPLAY_HEIGHT - 18, 2);
 }
 
 // ─── Mercator tile math ───────────────────────────────────────────────────────
@@ -55,28 +77,75 @@ static int lat2subPixel(double lat, int z) {
     return (int)((ty - floor(ty)) * TILE_SIZE_PX);
 }
 
-// ─── PNG draw callback ────────────────────────────────────────────────────────
-// Called once per row during decode. Writes only the pixels that fall inside
-// the 240×240 crop region directly to the display — no stitch buffer needed.
+// ─── PNG draw callbacks ───────────────────────────────────────────────────────
+// Each callback is called once per row during decode. Only pixels that fall
+// inside the 240×240 crop region are written to the display.
 
-static int pngRowCallback(PNGDRAW* pDraw) {
-    uint16_t line[TILE_SIZE_PX];
-    png.getLineAsRGB565(pDraw, line, PNG_RGB565_LITTLE_ENDIAN, 0x0000);
-
+static int mapRowCallback(PNGDRAW* pDraw) {
     int stitchRow  = s_ctx.tileOffY + pDraw->y;
     int displayRow = stitchRow - s_ctx.cropY;
     if (displayRow < 0 || displayRow >= DISPLAY_HEIGHT) return 1;
 
-    // Column overlap between this tile and the crop region
-    int overlapStart = max(s_ctx.tileOffX,                  s_ctx.cropX);
-    int overlapEnd   = min(s_ctx.tileOffX + TILE_SIZE_PX,   s_ctx.cropX + DISPLAY_WIDTH);
+    int overlapStart = max(s_ctx.tileOffX,                s_ctx.cropX);
+    int overlapEnd   = min(s_ctx.tileOffX + TILE_SIZE_PX, s_ctx.cropX + DISPLAY_WIDTH);
     if (overlapStart >= overlapEnd) return 1;
 
     int tileCol    = overlapStart - s_ctx.tileOffX;
     int displayCol = overlapStart - s_ctx.cropX;
     int width      = overlapEnd - overlapStart;
 
+    uint16_t line[TILE_SIZE_PX];
+    png.getLineAsRGB565(pDraw, line, PNG_RGB565_LITTLE_ENDIAN, 0x0000);
     tft.pushImage(displayCol, displayRow, width, 1, &line[tileCol]);
+    return 1;
+}
+
+// Radar tiles are RGBA (iPixelType == 6). Only pixels with alpha >= 16 are
+// drawn, letting the map layer show through where there is no precipitation.
+static int radarRowCallback(PNGDRAW* pDraw) {
+    int stitchRow  = s_ctx.tileOffY + pDraw->y;
+    int displayRow = stitchRow - s_ctx.cropY;
+    if (displayRow < 0 || displayRow >= DISPLAY_HEIGHT) return 1;
+
+    int overlapStart = max(s_ctx.tileOffX,                s_ctx.cropX);
+    int overlapEnd   = min(s_ctx.tileOffX + TILE_SIZE_PX, s_ctx.cropX + DISPLAY_WIDTH);
+    if (overlapStart >= overlapEnd) return 1;
+
+    int tileCol    = overlapStart - s_ctx.tileOffX;
+    int displayCol = overlapStart - s_ctx.cropX;
+    int width      = overlapEnd - overlapStart;
+
+    if (pDraw->iPixelType != 6) {
+        // Non-RGBA tile (unexpected): fall back to opaque draw
+        uint16_t line[TILE_SIZE_PX];
+        png.getLineAsRGB565(pDraw, line, PNG_RGB565_LITTLE_ENDIAN, 0x0000);
+        tft.pushImage(displayCol, displayRow, width, 1, &line[tileCol]);
+        return 1;
+    }
+
+    const uint8_t* rgba = pDraw->pPixels + tileCol * 4;
+    uint16_t span[TILE_SIZE_PX];
+    int spanStart = -1;
+
+    for (int i = 0; i < width; i++, rgba += 4) {
+        if (rgba[3] >= 16) {
+            uint16_t c = ((uint16_t)(rgba[0] & 0xF8) << 8) |
+                         ((uint16_t)(rgba[1] & 0xFC) << 3) |
+                         (rgba[2] >> 3);
+            span[i] = (c >> 8) | (c << 8);  // little-endian for TFT_eSPI
+            if (spanStart < 0) spanStart = i;
+        } else {
+            if (spanStart >= 0) {
+                tft.pushImage(displayCol + spanStart, displayRow,
+                              i - spanStart, 1, span + spanStart);
+                spanStart = -1;
+            }
+        }
+    }
+    if (spanStart >= 0) {
+        tft.pushImage(displayCol + spanStart, displayRow,
+                      width - spanStart, 1, span + spanStart);
+    }
     return 1;
 }
 
@@ -119,7 +188,7 @@ static int httpGetBinary(const String& url) {
 
 // ─── RainViewer API ───────────────────────────────────────────────────────────
 
-struct RadarInfo { String host, path; };
+struct RadarInfo { String host, path; uint32_t time; };
 
 static bool fetchRadarInfo(RadarInfo& out) {
     WiFiClientSecure client;
@@ -149,7 +218,9 @@ static bool fetchRadarInfo(RadarInfo& out) {
 
     out.host = doc["host"].as<String>();
     out.path = past[past.size() - 1]["path"].as<String>();
-    Serial.printf("[radar] frame: %s%s\n", out.host.c_str(), out.path.c_str());
+    out.time = past[past.size() - 1]["time"].as<uint32_t>();
+    Serial.printf("[radar] host=%s\n[radar] path=%s\n[radar] frame=%s%s\n",
+                  out.host.c_str(), out.path.c_str(), out.host.c_str(), out.path.c_str());
     return true;
 }
 
@@ -163,10 +234,20 @@ static String buildTileURL(const RadarInfo& info, int z, int x, int y) {
         + "/" + RV_TILE_OPTIONS + ".png";
 }
 
+static String buildMapTileURL(int z, int x, int y) {
+    return String("https://tiles.stadiamaps.com/tiles/")
+        + STADIA_STYLE
+        + "/" + String(z)
+        + "/" + String(x)
+        + "/" + String(y)
+        + ".png?api_key=" + STADIA_API_KEY;
+}
+
 // ─── Tile fetch + decode ──────────────────────────────────────────────────────
 
-static bool fetchAndDecodeTile(const String& url, int offX, int offY) {
-    Serial.printf("[radar] tile x=%d y=%d\n", offX / TILE_SIZE_PX, offY / TILE_SIZE_PX);
+static bool fetchAndDecodeTile(const String& url, int offX, int offY,
+                               PNG_DRAW_CALLBACK* cb) {
+    Serial.printf("[radar] tile x=%d y=%d  url=%s\n", offX / TILE_SIZE_PX, offY / TILE_SIZE_PX, url.c_str());
 
     int len = httpGetBinary(url);
     if (len == 0) return false;
@@ -174,7 +255,7 @@ static bool fetchAndDecodeTile(const String& url, int offX, int offY) {
     s_ctx.tileOffX = offX;
     s_ctx.tileOffY = offY;
 
-    int rc = png.openRAM(s_tileBuf, len, pngRowCallback);
+    int rc = png.openRAM(s_tileBuf, len, cb);
     if (rc != PNG_SUCCESS) { Serial.printf("[radar] PNG open failed: %d\n", rc); return false; }
 
     rc = png.decode(nullptr, 0);
@@ -188,12 +269,17 @@ static bool fetchAndDecodeTile(const String& url, int offX, int offY) {
 
 static bool connectWiFi(const AppConfig& cfg) {
     WiFi.persistent(false);
+    WiFi.disconnect(true);
+    delay(200);
     WiFi.mode(WIFI_STA);
+    delay(100);
     WiFi.begin(cfg.wifiSSID, cfg.wifiPass);
+    Serial.printf("[radar] connecting to SSID: '%s'\n", cfg.wifiSSID);
     Serial.print("[radar] WiFi connecting");
     for (int i = 0; i < 40; i++) {
         if (WiFi.status() == WL_CONNECTED) {
             Serial.printf(" OK  IP %s\n", WiFi.localIP().toString().c_str());
+            delay(1000);  // let routing/DNS settle before first HTTPS request
             return true;
         }
         delay(500);
@@ -205,32 +291,45 @@ static bool connectWiFi(const AppConfig& cfg) {
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
-void fetchAndDisplayRadar(const AppConfig& cfg) {
-    pinMode(LCD_BL_PIN, OUTPUT);
-    digitalWrite(LCD_BL_PIN, HIGH);
-    tft.init();
-    tft.setRotation(0);
-    tft.fillScreen(TFT_BLACK);
-    showStatus("Connecting...");
-
+bool fetchAndDisplayRadar(const AppConfig& cfg) {
     // Single tile download buffer from regular heap
     if (!s_tileBuf) {
         s_tileBuf = (uint8_t*)malloc(TILE_BUF_SIZE);
     }
-    if (!s_tileBuf) {
-        showStatus("No memory");
-        Serial.println("[radar] tile buffer alloc failed");
-        return;
+
+    // WiFi before TFT — DMA constraint (same as setup_server's softAP path).
+    // The existing radar image stays on screen during WiFi connect + API fetch.
+    if (!connectWiFi(cfg)) {
+        pinMode(LCD_BL_PIN, OUTPUT);
+        digitalWrite(LCD_BL_PIN, HIGH);
+        tft.init();
+        tft.setRotation(0);
+        showStatus("WiFi failed");
+        delay(10000);
+        showStatus("Starting setup...");
+        delay(1000);
+        return false;  // caller will enter setup mode
     }
 
-    if (!connectWiFi(cfg)) { showStatus("WiFi failed"); return; }
-    showStatus("Fetching radar...");
+    if (!s_tileBuf) {
+        pinMode(LCD_BL_PIN, OUTPUT);
+        digitalWrite(LCD_BL_PIN, HIGH);
+        tft.init();
+        tft.setRotation(0);
+        showStatus("No memory");
+        Serial.println("[radar] tile buffer alloc failed");
+        return true;
+    }
 
     RadarInfo radarInfo;
     if (!fetchRadarInfo(radarInfo)) {
+        pinMode(LCD_BL_PIN, OUTPUT);
+        digitalWrite(LCD_BL_PIN, HIGH);
+        tft.init();
+        tft.setRotation(0);
         showStatus("API error");
         WiFi.disconnect(true);
-        return;
+        return true;
     }
 
     // Tile grid + crop geometry
@@ -245,29 +344,52 @@ void fetchAndDisplayRadar(const AppConfig& cfg) {
     int locPixX = (tileX - gridOriginX) * TILE_SIZE_PX + subX;
     int locPixY = (tileY - gridOriginY) * TILE_SIZE_PX + subY;
 
-    s_ctx.cropX = constrain(locPixX - DISPLAY_WIDTH  / 2, 0, STITCH_SIZE - DISPLAY_WIDTH);
-    s_ctx.cropY = constrain(locPixY - DISPLAY_HEIGHT / 2, 0, STITCH_SIZE - DISPLAY_HEIGHT);
+    s_ctx.cropX           = constrain(locPixX - DISPLAY_WIDTH  / 2, 0, STITCH_SIZE - DISPLAY_WIDTH);
+    s_ctx.cropY           = constrain(locPixY - DISPLAY_HEIGHT / 2, 0, STITCH_SIZE - DISPLAY_HEIGHT);
+    s_ctx.gridOriginTileX = gridOriginX;
+    s_ctx.gridOriginTileY = gridOriginY;
 
     Serial.printf("[radar] crop (%d,%d)  loc (%d,%d)\n",
                   s_ctx.cropX, s_ctx.cropY, locPixX, locPixY);
 
-    // Black background — tiles write over it as they decode
-    tft.fillScreen(TFT_BLACK);
+    // Init display here — right before tiles start streaming — so the existing
+    // image stays visible through all the network work above. Tiles overwrite
+    // the display row-by-row with no blank clear in between.
+    pinMode(LCD_BL_PIN, OUTPUT);
+    digitalWrite(LCD_BL_PIN, HIGH);
+    tft.init();
+    tft.setRotation(0);
 
-    int tilesOK = 0;
+    // Pass 1: base map
+    int mapOK = 0;
     for (int row = 0; row < TILE_GRID; row++) {
         for (int col = 0; col < TILE_GRID; col++) {
-            String url = buildTileURL(radarInfo,
-                                      TILE_ZOOM,
-                                      gridOriginX + col,
-                                      gridOriginY + row);
-            if (fetchAndDecodeTile(url, col * TILE_SIZE_PX, row * TILE_SIZE_PX)) tilesOK++;
+            String url = buildMapTileURL(TILE_ZOOM, gridOriginX + col, gridOriginY + row);
+            if (fetchAndDecodeTile(url, col * TILE_SIZE_PX, row * TILE_SIZE_PX,
+                                   mapRowCallback)) mapOK++;
+        }
+    }
+
+    // Pass 2: radar overlay (alpha-composited over the map)
+    int radarOK = 0;
+    for (int row = 0; row < TILE_GRID; row++) {
+        for (int col = 0; col < TILE_GRID; col++) {
+            String url = buildTileURL(radarInfo, TILE_ZOOM,
+                                      gridOriginX + col, gridOriginY + row);
+            if (fetchAndDecodeTile(url, col * TILE_SIZE_PX, row * TILE_SIZE_PX,
+                                   radarRowCallback)) radarOK++;
         }
     }
 
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
 
-    if (tilesOK == 0) showStatus("No tile data");
-    else Serial.println("[radar] display updated");
+    if (mapOK == 0 && radarOK == 0) {
+        showStatus("No tile data");
+    } else {
+        drawCenterDot();
+        drawRadarTime(radarInfo.time, cfg.tzPosix);
+        Serial.printf("[radar] display updated (map=%d radar=%d)\n", mapOK, radarOK);
+    }
+    return true;
 }
