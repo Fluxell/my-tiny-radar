@@ -49,7 +49,27 @@ The library folder is typically:
 - **Windows:** `Documents\Arduino\libraries\TFT_eSPI\`
 - **macOS/Linux:** `~/Arduino/libraries/TFT_eSPI/`
 
-### 2. Compile-time options
+### 2. Stadia Maps API key
+
+The base map layer (roads and geography shown behind the radar) is served by [Stadia Maps](https://stadiamaps.com/). A free account gives you 200,000 tile requests per month, which is well above what this device uses at any refresh interval.
+
+1. Go to [client.stadiamaps.com](https://client.stadiamaps.com) and create a free account.
+2. Create a new **property** (the name doesn't matter).
+3. Copy the **API key** shown on the property dashboard.
+4. Open `config.h` and paste it in:
+   ```cpp
+   #define STADIA_API_KEY  "paste-your-key-here"
+   ```
+
+You can also change the map style via `STADIA_STYLE` in `config.h`:
+
+| Style | Look |
+|---|---|
+| `stamen_toner_lite` | Light B&W — default, doesn't compete with radar colours |
+| `alidade_smooth` | Subtle pastel colours |
+| `stamen_toner` | High-contrast B&W |
+
+### 3. Compile-time options
 
 Edit `config.h` before building if you need to change defaults:
 
@@ -59,6 +79,8 @@ Edit `config.h` before building if you need to change defaults:
 | `AP_PASSWORD` | `""` | Setup AP password (empty = open) |
 | `LCD_BL_PIN` | `40` | Backlight GPIO |
 | `RV_TILE_COLOR` | `4` | Radar colour scheme (2=Blue, 4=TWC, 6=Meteored, 7=NEXRAD) |
+| `STADIA_API_KEY` | `""` | Required — get a free key at client.stadiamaps.com |
+| `STADIA_STYLE` | `"stamen_toner_lite"` | Map style shown under the radar |
 | `REFRESH_DEFAULT` | `15` | Default refresh interval in minutes |
 
 ---
@@ -66,14 +88,18 @@ Edit `config.h` before building if you need to change defaults:
 ## Building & Flashing
 
 1. Open `TinyWeatherRadar.ino` in Arduino IDE.
-2. Select your board under **Tools → Board → esp32 → Waveshare ESP32-S3-LCD-1.85**.
-3. Set the following under **Tools**:
+2. Select your board under **Tools → Board → esp32**. Use **ESP32S3 Dev Module** (always available after installing the Espressif core). If you see **Waveshare ESP32-S3-LCD-1.28** in the list you can use that instead, but it is not required.
+3. Set **all** of the following under **Tools** — wrong values here are the most common cause of boot failures:
 
-   | Setting | Value |
-   |---|---|
-   | PSRAM | Enabled |
-   | Partition Scheme | 16M Flash (3MB APP/9.9MB FATFS) |
-   | Upload Speed | 921600 |
+   | Setting | Value | Why it matters |
+   |---|---|---|
+   | Board | ESP32S3 Dev Module | or Waveshare ESP32-S3-LCD-1.28 if listed |
+   | Flash Size | **4MB** | Chip is 4 MB — larger values fail to boot |
+   | PSRAM | **Disabled** | Board has no accessible PSRAM |
+   | Partition Scheme | **Huge APP (3MB No OTA/1MB SPIFFS)** | Needed for app + map tile code |
+   | CPU Frequency | 240 MHz | Default; lower values slow WiFi |
+   | Upload Speed | 921600 | |
+   | USB CDC On Boot | **Enabled** | Required for Serial monitor on ESP32-S3 |
 
 4. Select the correct COM port under **Tools → Port**.
 5. Click **Upload** (→).
