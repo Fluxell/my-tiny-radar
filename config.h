@@ -12,8 +12,20 @@
 #define LCD_RST_PIN     12             // display reset — must be held HIGH during deep sleep
 #define LCD_CS_PIN      9              // SPI chip-select — must be held HIGH during deep sleep
 
+// ─── Buttons ──────────────────────────────────────────────────────────────────
+#define BTN_LEFT_PIN    4              // short=zoom out, hold=soft reset
+#define BTN_RIGHT_PIN   5              // short=zoom in,  hold=enter setup mode
+                                       // NOTE: GPIO5 is silkscreened TP_INT (touch panel
+                                       // interrupt) but no touch code exists in this project.
+#define BTN_HOLD_MS     2000           // ms held to trigger the "long press" action
+#define BTN_DEBOUNCE_MS 40             // settle time before trusting a wake-triggered read
+#define BTN_LINGER_MS   30000          // stay awake + WiFi connected this long after a tap,
+                                       // watching for more taps, before actually sleeping
+
 // ─── Radar tile settings ──────────────────────────────────────────────────────
-#define TILE_ZOOM       7
+#define TILE_ZOOM       7              // default zoom — used only as the NVS fallback default
+#define ZOOM_MIN        4              // widest useful view
+#define ZOOM_MAX        7              // hard cap — closest allowed zoom level
 #define TILE_SIZE_PX    256            // RainViewer tile pixel dimension
 #define TILE_GRID       2              // fetch a 2×2 grid
 #define STITCH_SIZE     (TILE_SIZE_PX * TILE_GRID)   // 512
@@ -31,11 +43,6 @@
 #define REFRESH_MIN     5
 #define REFRESH_MAX     60
 #define REFRESH_DEFAULT 15
-
-// ─── IMU (QMI8658 on Waveshare ESP32-S3-LCD-1.28) ────────────────────────────
-#define IMU_SDA_PIN     6
-#define IMU_SCL_PIN     7
-#define IMU_ADDR        0x6B
 
 // ─── NVS namespace ────────────────────────────────────────────────────────────
 #define NVS_NAMESPACE   "tinyradar"

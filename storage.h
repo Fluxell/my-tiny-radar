@@ -8,6 +8,7 @@ struct AppConfig {
     float   longitude;
     int     refreshMinutes;
     char    tzPosix[64];       // POSIX TZ string, e.g. "CST6CDT,M3.2.0,M11.1.0"
+    int     tileZoom;          // Web Mercator zoom level (persisted; see ZOOM_MIN/ZOOM_MAX)
 };
 
 // Returns true if valid config was found in NVS
