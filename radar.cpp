@@ -29,27 +29,32 @@ static RenderCtx s_ctx;
 
 // ─── Display helpers ──────────────────────────────────────────────────────────
 
-static void showStatus(const char* msg) {
-    tft.fillScreen(TFT_BLACK);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString(msg, DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 2, 2);
-}
-
-
 static void drawCenterDot() {
     tft.fillCircle(DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 2, 3,
                    tft.color565(210, 210, 210));
 }
 
-static void drawRadarTime(uint32_t radarUnixTime, const char* tzPosix) {
+// Small cloud glyph shown in the bottom-right quadrant while tiles are
+// downloading. Not explicitly erased: the bottom-right map tile is the last
+// one decoded each pass, so its incoming pixel rows overwrite the glyph
+// naturally right as loading finishes.
+static void drawLoadingIcon() {
+    const int cx = 188, cy = 190;
+    uint16_t c = tft.color565(180, 180, 180);
+    tft.fillCircle(cx - 5, cy + 1, 4, c);
+    tft.fillCircle(cx + 4, cy + 1, 5, c);
+    tft.fillCircle(cx,     cy - 3, 5, c);
+    tft.fillRect(cx - 9, cy - 1, 18, 6, c);
+}
+
+static void drawRadarTime(uint32_t radarUnixTime, const char* tzPosix, int tileZoom) {
     setenv("TZ", tzPosix, 1);
     tzset();
     time_t t = (time_t)radarUnixTime;
     struct tm tmLocal;
     localtime_r(&t, &tmLocal);
-    char buf[6];
-    snprintf(buf, sizeof(buf), "%02d:%02d", tmLocal.tm_hour, tmLocal.tm_min);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02d:%02d (%d)", tmLocal.tm_hour, tmLocal.tm_min, tileZoom);
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(tft.color565(200, 200, 200), TFT_BLACK);
     tft.drawString(buf, DISPLAY_WIDTH / 2, DISPLAY_HEIGHT - 18, 2);
@@ -268,6 +273,9 @@ static bool fetchAndDecodeTile(const String& url, int offX, int offY,
 // ─── WiFi ─────────────────────────────────────────────────────────────────────
 
 static bool connectWiFi(const AppConfig& cfg) {
+    if (WiFi.status() == WL_CONNECTED) {
+        return true; // already connected — e.g. a re-render during the button linger window
+    }
     WiFi.persistent(false);
     WiFi.disconnect(true);
     delay(200);
@@ -291,7 +299,12 @@ static bool connectWiFi(const AppConfig& cfg) {
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
-bool fetchAndDisplayRadar(const AppConfig& cfg) {
+void disconnectWifi() {
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+}
+
+bool fetchAndDisplayRadar(const AppConfig& cfg, bool keepWifiConnected) {
     // Single tile download buffer from regular heap
     if (!s_tileBuf) {
         s_tileBuf = (uint8_t*)malloc(TILE_BUF_SIZE);
@@ -300,43 +313,27 @@ bool fetchAndDisplayRadar(const AppConfig& cfg) {
     // WiFi before TFT — DMA constraint (same as setup_server's softAP path).
     // The existing radar image stays on screen during WiFi connect + API fetch.
     if (!connectWiFi(cfg)) {
-        pinMode(LCD_BL_PIN, OUTPUT);
-        digitalWrite(LCD_BL_PIN, HIGH);
-        tft.init();
-        tft.setRotation(0);
-        showStatus("WiFi failed");
-        delay(10000);
-        showStatus("Starting setup...");
-        delay(1000);
-        return false;  // caller will enter setup mode
+        Serial.println("[radar] WiFi connect failed — leaving last frame on screen");
+        return false;  // caller will enter setup mode (draws its own screen)
     }
 
     if (!s_tileBuf) {
-        pinMode(LCD_BL_PIN, OUTPUT);
-        digitalWrite(LCD_BL_PIN, HIGH);
-        tft.init();
-        tft.setRotation(0);
-        showStatus("No memory");
-        Serial.println("[radar] tile buffer alloc failed");
+        Serial.println("[radar] tile buffer alloc failed — leaving last frame on screen");
         return true;
     }
 
     RadarInfo radarInfo;
     if (!fetchRadarInfo(radarInfo)) {
-        pinMode(LCD_BL_PIN, OUTPUT);
-        digitalWrite(LCD_BL_PIN, HIGH);
-        tft.init();
-        tft.setRotation(0);
-        showStatus("API error");
-        WiFi.disconnect(true);
+        Serial.println("[radar] API error — leaving last frame on screen");
+        if (!keepWifiConnected) WiFi.disconnect(true);
         return true;
     }
 
     // Tile grid + crop geometry
-    int tileX  = lon2tileX(cfg.longitude, TILE_ZOOM);
-    int tileY  = lat2tileY(cfg.latitude,  TILE_ZOOM);
-    int subX   = lon2subPixel(cfg.longitude, TILE_ZOOM);
-    int subY   = lat2subPixel(cfg.latitude,  TILE_ZOOM);
+    int tileX  = lon2tileX(cfg.longitude, cfg.tileZoom);
+    int tileY  = lat2tileY(cfg.latitude,  cfg.tileZoom);
+    int subX   = lon2subPixel(cfg.longitude, cfg.tileZoom);
+    int subY   = lat2subPixel(cfg.latitude,  cfg.tileZoom);
 
     int gridOriginX = (subX >= TILE_SIZE_PX / 2) ? tileX : tileX - 1;
     int gridOriginY = (subY >= TILE_SIZE_PX / 2) ? tileY : tileY - 1;
@@ -359,12 +356,13 @@ bool fetchAndDisplayRadar(const AppConfig& cfg) {
     digitalWrite(LCD_BL_PIN, HIGH);
     tft.init();
     tft.setRotation(0);
+    drawLoadingIcon();
 
     // Pass 1: base map
     int mapOK = 0;
     for (int row = 0; row < TILE_GRID; row++) {
         for (int col = 0; col < TILE_GRID; col++) {
-            String url = buildMapTileURL(TILE_ZOOM, gridOriginX + col, gridOriginY + row);
+            String url = buildMapTileURL(cfg.tileZoom, gridOriginX + col, gridOriginY + row);
             if (fetchAndDecodeTile(url, col * TILE_SIZE_PX, row * TILE_SIZE_PX,
                                    mapRowCallback)) mapOK++;
         }
@@ -374,21 +372,23 @@ bool fetchAndDisplayRadar(const AppConfig& cfg) {
     int radarOK = 0;
     for (int row = 0; row < TILE_GRID; row++) {
         for (int col = 0; col < TILE_GRID; col++) {
-            String url = buildTileURL(radarInfo, TILE_ZOOM,
+            String url = buildTileURL(radarInfo, cfg.tileZoom,
                                       gridOriginX + col, gridOriginY + row);
             if (fetchAndDecodeTile(url, col * TILE_SIZE_PX, row * TILE_SIZE_PX,
                                    radarRowCallback)) radarOK++;
         }
     }
 
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
+    if (!keepWifiConnected) {
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+    }
 
     if (mapOK == 0 && radarOK == 0) {
-        showStatus("No tile data");
+        Serial.println("[radar] no tile data — leaving last frame on screen");
     } else {
         drawCenterDot();
-        drawRadarTime(radarInfo.time, cfg.tzPosix);
+        drawRadarTime(radarInfo.time, cfg.tzPosix, cfg.tileZoom);
         Serial.printf("[radar] display updated (map=%d radar=%d)\n", mapOK, radarOK);
     }
     return true;

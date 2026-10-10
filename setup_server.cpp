@@ -350,6 +350,12 @@ static void handleSave() {
     }
 
     AppConfig cfg = {};
+    if (!loadConfig(cfg)) {
+        cfg.tileZoom = TILE_ZOOM; // first-time setup — no prior zoom to preserve
+    }
+    // Form has no zoom field (zoom is button-controlled) — cfg.tileZoom above
+    // is either the previously saved value or the first-time default; leave it
+    // untouched here so submitting the setup form never resets it.
     server.arg("ssid").toCharArray(cfg.wifiSSID, sizeof(cfg.wifiSSID));
     server.arg("pass").toCharArray(cfg.wifiPass, sizeof(cfg.wifiPass));
     cfg.latitude       = server.arg("lat").toFloat();
@@ -371,7 +377,7 @@ static void handleNotFound() {
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
-void startSetupServer() {
+void startSetupServer(unsigned long timeoutMs) {
     // WiFi must claim its DMA channels before TFT_eSPI initialises SPI2
     Serial.println("[setup] calling softAP"); Serial.flush();
     WiFi.persistent(false);
@@ -395,9 +401,55 @@ void startSetupServer() {
     server.onNotFound(handleNotFound);
     server.begin();
 
+    // LEFT button skips setup mode outright instead of waiting for a client —
+    // pinMode'd here rather than relying on the caller, since this path can be
+    // reached before TinyWeatherRadar.ino's own button init runs.
+    pinMode(BTN_LEFT_PIN, INPUT_PULLUP);
+
     Serial.println("[setup] entering loop"); Serial.flush();
+    unsigned long deadline = (timeoutMs > 0) ? millis() + timeoutMs : 0;
+    int lastSecsShown = -1;
+
     while (true) {
         server.handleClient();
         delay(2);
+
+        if (digitalRead(BTN_LEFT_PIN) == LOW) {
+            delay(BTN_DEBOUNCE_MS);
+            if (digitalRead(BTN_LEFT_PIN) == LOW) {
+                Serial.println("[setup] LEFT pressed — skipping setup, resuming");
+                server.stop();
+                WiFi.softAPdisconnect(true);
+                WiFi.mode(WIFI_OFF);
+                return;
+            }
+        }
+
+        if (deadline > 0) {
+            if (WiFi.softAPgetStationNum() > 0) {
+                // Client connected — cancel timeout and erase countdown
+                deadline = 0;
+                tft.fillRect(0, 0, DISPLAY_WIDTH, 36, TFT_BLACK);
+            } else {
+                unsigned long now = millis();
+                if (now >= deadline) {
+                    Serial.println("[setup] timeout — no client connected, resuming");
+                    server.stop();
+                    WiFi.softAPdisconnect(true);
+                    WiFi.mode(WIFI_OFF);
+                    return;
+                }
+
+                int secsLeft = (int)((deadline - now + 999) / 1000);
+                if (secsLeft != lastSecsShown) {
+                    char buf[6];
+                    snprintf(buf, sizeof(buf), "%ds", secsLeft);
+                    tft.setTextDatum(TC_DATUM);
+                    tft.setTextColor(tft.color565(148, 163, 184), TFT_BLACK);
+                    tft.drawString(buf, DISPLAY_WIDTH / 2, 12, 2);
+                    lastSecsShown = secsLeft;
+                }
+            }
+        }
     }
 }

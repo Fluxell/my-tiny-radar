@@ -14,6 +14,7 @@ bool loadConfig(AppConfig& cfg) {
         cfg.longitude      = prefs.getFloat("lon",     0.0f);
         cfg.refreshMinutes = prefs.getInt("refresh", REFRESH_DEFAULT);
         prefs.getString("tzposix", cfg.tzPosix, sizeof(cfg.tzPosix));
+        cfg.tileZoom       = constrain(prefs.getInt("zoom", TILE_ZOOM), ZOOM_MIN, ZOOM_MAX);
     }
 
     prefs.end();
@@ -29,6 +30,7 @@ void saveConfig(const AppConfig& cfg) {
     prefs.putFloat("lon",      cfg.longitude);
     prefs.putInt("refresh",    cfg.refreshMinutes);
     prefs.putString("tzposix", cfg.tzPosix);
+    prefs.putInt("zoom",       cfg.tileZoom);
     prefs.end();
 }
 
